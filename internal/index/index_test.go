@@ -41,3 +41,52 @@ func TestGetSourceFiles(t *testing.T) {
 	require.NoError(t, err)
 	assert.Len(t, sourceFiles, 4)
 }
+
+func TestScanSourceFile(t *testing.T) {
+	tests := scanSourceFileTests
+
+	for _, tt := range tests {
+		t.Run(tt.Name, func(t *testing.T) {
+			// Create temporary file with test content
+			dir := t.TempDir()
+			filePath := filepath.Join(dir, "test.js")
+			err := os.WriteFile(filePath, []byte(tt.Code), 0644)
+			require.NoError(t, err)
+
+			// Update expected paths
+			expected := make([]types.SignatureHit, len(tt.Expected))
+			for i, exp := range tt.Expected {
+				expected[i] = exp
+				expected[i].Path = filePath
+			}
+
+			signatureHits, err := ScanSourceFile(types.File{Path: filePath, Info: nil})
+			require.NoError(t, err)
+			assert.Equal(t, expected, signatureHits)
+		})
+	}
+}
+
+func TestExpandSignatureHitSpan(t *testing.T) {
+	tests := expandSignatureHitSpanTests
+
+	for _, tt := range tests {
+		t.Run(tt.Name, func(t *testing.T) {
+			// Create temporary file with test content
+			dir := t.TempDir()
+			filePath := filepath.Join(dir, "test.js")
+			err := os.WriteFile(filePath, []byte(tt.Code), 0644)
+			require.NoError(t, err)
+
+			// Update hit and expected paths
+			hit := tt.Hit
+			hit.Path = filePath
+			expected := tt.Expected
+			expected.Path = filePath
+
+			signatureSpan, err := ExpandSignatureHitSpan(hit)
+			require.NoError(t, err)
+			assert.Equal(t, expected, signatureSpan)
+		})
+	}
+}

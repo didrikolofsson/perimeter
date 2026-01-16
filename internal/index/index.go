@@ -161,3 +161,64 @@ func ScanSourceFile(file types.File) ([]types.SignatureHit, error) {
 
 	return signatureHits, nil
 }
+
+func ExpandSignatureHitSpan(hit types.SignatureHit) (types.SignatureSpan, error) {
+	content, err := os.ReadFile(hit.Path)
+	if err != nil {
+		return types.SignatureSpan{}, err
+	}
+
+	lines := strings.Split(string(content), "\n")
+	if hit.LineNumber < 1 || hit.LineNumber > len(lines) {
+		return types.SignatureSpan{}, errors.New("line number out of range")
+	}
+
+	startLine := hit.LineNumber - 1
+	contentFromStart := strings.Join(lines[startLine:], "\n")
+
+	// Find the first opening parenthesis (e.g., get(, post(, etc.)
+	parenDepth := 0
+	startIdx := -1
+	endIdx := -1
+
+	for i, char := range contentFromStart {
+		if char == '(' {
+			if startIdx == -1 {
+				startIdx = i
+			}
+			parenDepth++
+		}
+		if char == ')' {
+			parenDepth--
+			if parenDepth == 0 && startIdx != -1 {
+				endIdx = i
+				break
+			}
+		}
+	}
+
+	if startIdx == -1 || endIdx == -1 {
+		// No parentheses found, return single line
+		spanContent := lines[startLine]
+		return types.SignatureSpan{
+			Path:      hit.Path,
+			StartLine: startLine + 1,
+			EndLine:   startLine + 1,
+			Content:   spanContent,
+		}, nil
+	}
+
+	// Calculate end line by counting newlines up to endIdx
+	endLine := startLine + strings.Count(contentFromStart[:endIdx+1], "\n")
+
+	// Get the full span including complete lines
+	spanLines := lines[startLine : endLine+1]
+	spanContent := strings.Join(spanLines, "\n")
+
+	return types.SignatureSpan{
+		Path:      hit.Path,
+		StartLine: startLine + 1,
+		EndLine:   endLine + 1,
+		Content:   spanContent,
+	}, nil
+}

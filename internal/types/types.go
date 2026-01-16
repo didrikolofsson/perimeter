@@ -26,7 +26,7 @@ type SignatureSpan struct {
 	Path      string
 	StartLine int
 	EndLine   int
-	SHA256    string
+	Content   string
 }
 
 type ExpressRouteType string
