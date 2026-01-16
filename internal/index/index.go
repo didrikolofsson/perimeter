@@ -1,12 +1,13 @@
 package index
 
 import (
+	"bufio"
 	"errors"
-	"io"
 	"os"
 	"path/filepath"
 	"perimeter/internal/logx"
 	"perimeter/internal/types"
+	"strings"
 )
 
 func validateRoot(root string) error {
@@ -65,25 +66,98 @@ func GetSourceFiles(files []types.File) ([]types.File, error) {
 	return sourceFiles, nil
 }
 
-func GetFileContent(file types.File, maxBytes int64) ([]byte, error) {
+type ExpressEndpointPattern struct {
+	Pattern string
+	Type    types.ExpressRouteType
+}
+
+var expressEndpointPatterns = []ExpressEndpointPattern{
+	{Pattern: ".get(", Type: types.ExpressEndpointGet},
+	{Pattern: ".post(", Type: types.ExpressEndpointPost},
+	{Pattern: ".put(", Type: types.ExpressEndpointPut},
+	{Pattern: ".delete(", Type: types.ExpressEndpointDelete},
+}
+
+func IsExpressRoute(line string) bool {
+	for _, endpoint := range expressEndpointPatterns {
+		if strings.Contains(line, endpoint.Pattern) {
+			return true
+		}
+	}
+	return false
+}
+
+func GetExpressEndpointType(line string) (types.ExpressRouteType, error) {
+	for _, endpoint := range expressEndpointPatterns {
+		if strings.Contains(line, endpoint.Pattern) {
+			return endpoint.Type, nil
+		}
+	}
+	return "", errors.New("no matching express endpoint type")
+}
+
+var jestTestPatterns = []string{
+	"it(",
+	"describe(",
+}
+
+func IsJestTest(line string) bool {
+	for _, pattern := range jestTestPatterns {
+		if strings.Contains(line, pattern) {
+			return true
+		}
+	}
+	return false
+}
+
+func GetJestTestSignature(file types.File) (bool, error) {
 	f, err := os.Open(file.Path)
 	if err != nil {
+		logx.Logger.Info("Failed to open file", "error", err)
+		return false, err
+	}
+	defer f.Close()
+
+	scanner := bufio.NewScanner(f)
+	for scanner.Scan() {
+		line := scanner.Text()
+		if IsJestTest(line) {
+			return true, nil
+		}
+	}
+	if err := scanner.Err(); err != nil {
+		return false, err
+	}
+	return false, nil
+}
+
+func ScanSourceFile(file types.File) ([]types.SignatureHit, error) {
+	f, err := os.Open(file.Path)
+	if err != nil {
+		logx.Logger.Info("Failed to open file", "error", err)
 		return nil, err
 	}
 	defer f.Close()
-	var buf []byte
-	if maxBytes != 0 {
-		r := io.LimitReader(f, maxBytes)
-		b, _ := io.ReadAll(r)
-		buf = b
-	}
-	if maxBytes == 0 {
-		b, _ := io.ReadAll(f)
-		buf = b
-	}
-	return buf, nil
-}
 
-func GetFileContentFull(file types.File) ([]byte, error) {
-	return GetFileContent(file, 0)
+	scanner := bufio.NewScanner(f)
+	signatureHits := []types.SignatureHit{}
+	lineNumber := 0
+
+	for scanner.Scan() {
+		lineNumber++
+		line := scanner.Text()
+
+		if IsExpressRoute(line) {
+			signatureHits = append(signatureHits, types.SignatureHit{
+				Path:          file.Path,
+				LineNumber:    lineNumber,
+				SignatureType: types.ExpressRoute,
+			})
+		}
+	}
+	if err := scanner.Err(); err != nil {
+		return nil, err
+	}
+
+	return signatureHits, nil
 }
